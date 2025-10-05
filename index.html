@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    nav a {
+      margin-right: 10px;
+      cursor: pointer;
+      text-decoration: underline;
+      color: blue;
+    }
+    .page { display: none; }
+  </style>
+
+<!-- for calendar --> 
+  <base target="_top">
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    <style>
+      body { font: 13px/1.4 Arial, sans-serif; padding: 8px; }
+      #calendar { max-width: 700px; margin: 0 auto; }
+      .fc .fc-toolbar-title { font-size: 1rem; }
+      .btn-row { margin: 8px 0; display: flex; gap: 8px; }
+      input, select, textarea { width: 100%; margin: 4px 0; }
+      .form { margin-top: 8px; padding: 8px; border: 1px solid #eee; border-radius: 6px; }
+      .small { font-size: 12px; color: #666; }
+    </style>
+
+</head>
+<body>
+  <nav>
+    <a onclick="show('orders')">Orders</a>
+    <a onclick="show('inventory')">Inventory</a>
+    <a onclick="show('products')">Products</a>
+    <a onclick="show('events')">Events</a>
+  </nav>
+  <hr>
+<!-- --------------------- Orders Page ---------------------- -->
+  <div id="orders" class="page">
+    <h2>Orders Dashboard</h2>
+    <!-- order form -->
+    <form id="orders_form">
+      
+      <h3>Order ID: <span id="order_id_display">Loading...</span></h3>
+      <input type="hidden" id="order_id">
+      <br>
+
+      <label>Email: <input type="email" id="email"></label><br>
+      <label>Date: <input type="date" id="date"></label><br><br>
+
+      <h4>Products</h4>
+      <div id="productsContainer"></div>
+      <button type="button" id="addProductBtn">+ Add Another Product</button><br><br>
+
+      <label>Revenue: <input type="number" id="revenue" readonly></label><br>
+      <label>Cost: <input type="number" id="cost" readonly></label><br>
+      <label>Status: <input type="text" id="status" placeholder="Not Started"></label><br><br>
+
+      <button type="submit">Submit</button>
+    </form>
+
+
+  </div>
+
+<!-- --------------------- Inventory Page ---------------------- -->
+
+  <div id="inventory" class="page">
+    <h2 style="display:none">Inventory Dashboard</h2>
+    <!-- inventory table -->
+    <h3 style="display:none">Inventory View</h3>
+    <table id='inventoryTable' border="1" cellpadding="5">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+
+    <!-- inventory add form-->
+    <h3>Add Inventory</h3>
+    <form id='inventory_form'>
+      <label>Product: <input type="text" id="inv_product" required></label><br>
+      <label>Quantity: <input type="number" id="inv_quantity" required></label><br>
+      <label>Last Updated: <input type="date" id="inv_date" required></label><br>
+      <br><button type="submit">Add Inventory</button>
+  </div>
+
+
+<!-- --------------------- Products Page ---------------------- -->
+
+  <div id="products" class="page">
+    <h2>Products Dashboard</h2>
+    <!-- product info -->
+  </div>
+
+<!-- --------------------- Events Page ---------------------- -->
+<div id="events" class="page" style="display:none;">
+  <h2>Events</h2>
+  <div id="calendar"></div>
+
+  <div class="form">
+    <div class="small">Quick add</div>
+    <input id="title" placeholder="Title (e.g., Brown Butter Bites)">
+    <select id="channel">
+      <option value="">Channel</option>
+      <option>Wholesale</option>
+      <option>Event</option>
+      <option>DTC</option>
+    </select>
+    <input id="qty" type="number" placeholder="Qty">
+    <input id="hours" type="number" placeholder="Hours">
+    <input id="priority" type="number" placeholder="Priority (1–5)">
+    <input id="revenue" type="number" placeholder="Est. revenue">
+    <textarea id="notes" placeholder="Notes"></textarea>
+    <div class="btn-row">
+      <button id="saveBtn" disabled>Add to selected date</button>
+      <button id="deleteBtn" disabled>Delete selected event</button>
+    </div>
+    <div class="small" id="status"></div>
+  </div>
+</div>
+
+
+<!-- --------------------- Scripts ---------------------- -->
+
+<!-- This is for the Nav Bar -->
+<script>
+    function show(page) {
+      document.querySelectorAll('.page').forEach(el => el.style.display = 'none');
+      document.getElementById(page).style.display = 'block';
+
+      if (page === "orders") {
+        loadNextOrderID(); // When orders page is shown, update order ID
+      }
+      if (page === "events") {
+        ensureEventsCalendar(); 
+      }
+      if (page === 'inventory') {
+        loadInventory();
+      }
+    }
+
+    // Load next order ID from Google Sheet
+    function loadNextOrderID() {
+      const displayEl = document.getElementById('order_id_display');
+      const hiddenEl = document.getElementById('order_id');
+
+      displayEl.textContent = 'Loading...';
+      hiddenEl.value = '';
+
+      google.script.run.withSuccessHandler(function(orderID) {
+        displayEl.textContent = orderID;
+        hiddenEl.value = orderID;
+      }).getNextOrderID();
+    }
+
+    // Run once when page first loads
+    document.addEventListener('DOMContentLoaded', function() {
+      show('orders'); // default view
+      loadNextOrderID(); // load Order ID immediately
+
+    });
+  </script>
+
+<!-- Rest of the Functions -->
+  <script>
+  document.addEventListener("DOMContentLoaded", () => {
+    let allProducts = [];
+    let productMap = {};
+
+    // Load products from Google Sheet
+    google.script.run.withSuccessHandler(function(productsFromSheet){
+      allProducts = productsFromSheet || [];
+      productMap = {};
+      allProducts.forEach(p => {
+        productMap[p.name] = { revenue: p.revenue, cost: p.cost };
+      });
+
+      const addBtn = document.getElementById('addProductBtn');
+      if (allProducts.length === 0) {
+        console.warn('No products returned from sheet.');
+        addBtn.disabled = true;
+      } else {
+        addBtn.disabled = false;
+        addProductRow(); // Start with one row
+      }
+    }).getProductsWithRevenueCost();
+
+    // Add button listener
+    document.getElementById('addProductBtn').addEventListener('click', addProductRow);
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, m => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[m]));
+    }
+
+    function addProductRow() {
+      const container = document.getElementById('productsContainer');
+      const row = document.createElement('div');
+      row.className = 'product-row';
+
+      const select = document.createElement('select');
+      select.name = 'product';
+      select.required = true;
+      select.innerHTML = `<option value="">-- Select Product --</option>` +
+        allProducts.map(p =>
+          `<option value="${escapeHtml(String(p.name))}">${escapeHtml(String(p.name))}</option>`
+        ).join('');
+
+      const qty = document.createElement('input');
+      qty.type = 'number';
+      qty.name = 'quantity';
+      qty.placeholder = 'Qty';
+      qty.min = 0;
+      qty.style.marginLeft = '10px';
+      qty.required = true;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.textContent = '×';
+      removeBtn.style.marginLeft = '8px';
+      removeBtn.onclick = () => {
+        row.remove();
+        updateTotals();
+      };
+
+      select.addEventListener('change', updateTotals);
+      qty.addEventListener('input', updateTotals);
+
+      row.append(select, qty, removeBtn);
+      container.appendChild(row);
+    }
+
+    // --------- Updates the Rev/Cost fields as they input product details -------- //
+    function updateTotals() {
+      const productRows = Array.from(document.querySelectorAll('#productsContainer > .product-row'));
+      let totalRevenue = 0;
+      let totalCost = 0;
+
+      productRows.forEach(row => {
+        const name = row.querySelector('select').value;
+        const qty = Number(row.querySelector('input[name="quantity"]').value) || 0;
+        if (name && qty > 0 && productMap[name]) {
+          totalRevenue += productMap[name].revenue * qty;
+          totalCost += productMap[name].cost * qty;
+        }
+      });
+
+      document.getElementById('revenue').value = totalRevenue;
+      document.getElementById('cost').value = totalCost;
+    }
+
+    // ----------- Handle Form Submit Bttn ----------- //
+    document.getElementById("orders_form").addEventListener('submit', function(e) {
+      e.preventDefault();
+      const productRows = Array.from(document.querySelectorAll('#productsContainer > .product-row'));
+      const products = productRows.map(row => ({
+        name: row.querySelector('select').value,
+        quantity: row.querySelector('input[name="quantity"]').value || 0
+      })).filter(p => p.name && p.quantity > 0);
+
+      const formData = {
+        order_id: document.getElementById('order_id').value,
+        email: document.getElementById('email').value,
+        date: document.getElementById('date').value,
+        products: products,
+        revenue: Number(document.getElementById('revenue').value),
+        cost: Number(document.getElementById('cost').value),
+        status: document.getElementById('status').value || 'Not Started'
+      };
+   
+      google.script.run
+        .withSuccessHandler(response => {
+          alert('Data submitted successfully: ' + response);
+          document.getElementById('orders_form').reset();
+          document.getElementById('productsContainer').innerHTML = '';
+          if (allProducts.length) addProductRow();
+          updateTotals();
+        })
+        .withFailureHandler(error => alert('Error submitting data: ' + error))
+        .processFormData(formData);
+    });
+  });
+
+  // Inventory show page
+  const originalShow = show;
+  show = function(page) {
+    originalShow(page);
+    if (page === 'inventory') loadInventory();
+  };
+
+  function loadInventory() {
+    const tableHead = document.querySelector('#inventoryTable thead');
+    const tableBody = document.querySelector('#inventoryTable tbody');
+
+    google.script.run.withSuccessHandler(function(data) {
+      if (!data.length) {
+        tableHead.innerHTML = '<tr><th>No Inventory Data</th></tr>';
+        tableBody.innerHTML = '';
+        return;
+      }
+      const headers = Object.keys(data[0]);
+      tableHead.innerHTML = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+      tableBody.innerHTML = data.map(row => '<tr>' + headers.map(h => `<td>${row[h] ?? ''}</td>`).join('') + '</tr>').join('');
+    }).getInventoryData();
+  } 
+  
+
+  // inventory submit button
+  document.getElementById('inventory_form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = {
+      Product: document.getElementById('inv_product').value.trim(),
+      Quantity: Number(document.getElementById('inv_quantity').value),
+      LastUpdated: document.getElementById('inv_date').value
+    };
+
+
+    google.script.run.withSuccessHandler(message => {
+      alert(message);
+      document.getElementById('inventory_form').reset();
+      show('inventory');
+
+      setTimeout(() => {
+        loadInventory();
+      }, 100);
+    })
+    .withFailureHandler(err => alert('Error: '+ err))
+    .addInventoryData(formData);
+
+    
+  })
+  
+  </script>
+
+  <!-- calendar --> 
+  <script>
+  // Events tab calendar (self-contained)
+  let calendar, calendarReady = false;
+  let selectedDate = null;
+  let selectedEvent = null;
+
+  function ensureEventsCalendar() {
+    if (calendarReady) {
+      calendar.updateSize();
+      calendar.render();
+      return;
+    }
+    const el = document.getElementById('calendar');
+    if (!el) return;
+
+    calendar = new FullCalendar.Calendar(el, {
+      initialView: 'dayGridMonth',
+      height: 'auto',
+      selectable: true,
+      editable: true,
+      dateClick: (info) => {
+        selectedDate = info.dateStr;
+        selectedEvent = null;
+        document.getElementById('saveBtn').disabled = false;
+        document.getElementById('deleteBtn').disabled = true;
+        setStatus('Selected: ' + selectedDate);
+      },
+      eventClick: (info) => {
+        selectedEvent = info.event;
+        selectedDate = selectedEvent.startStr.substring(0,10);
+        const x = selectedEvent.extendedProps || {};
+        setVal('title', selectedEvent.title);
+        setVal('channel', x.channel || '');
+        setVal('qty', x.qty || '');
+        setVal('hours', x.hours || '');
+        setVal('priority', x.priority || '');
+        setVal('revenue', x.revenue || '');
+        setVal('notes', x.notes || '');
+        document.getElementById('saveBtn').disabled = false;
+        document.getElementById('deleteBtn').disabled = false;
+        setStatus('Selected event on ' + selectedDate);
+      },
+      eventDrop: (info) => {
+        google.script.run.updateEvent({ id: info.event.id, start: info.event.startStr });
+      },
+      events: fetchEvents // pulls from your Code.gs listEvents()
+    });
+    calendar.render();
+
+    document.getElementById('saveBtn').addEventListener('click', onSave);
+    document.getElementById('deleteBtn').addEventListener('click', onDelete);
+
+    calendarReady = true;
+  }
+
+  function fetchEvents(info, successCb, failureCb) {
+    google.script.run
+      .withSuccessHandler(successCb)
+      .withFailureHandler(err => failureCb(err.message))
+      .listEvents(info.startStr, info.endStr);
+  }
+
+  function onSave() {
+    if (!selectedDate) { setStatus('Pick a date on the calendar first.'); return; }
+    const payload = {
+      start: selectedDate,
+      title: val('title'),
+      channel: val('channel'),
+      qty: val('qty'),
+      hours: val('hours'),
+      priority: val('priority'),
+      revenue: val('revenue'),
+      notes: val('notes')
+    };
+    if (selectedEvent && selectedEvent.id) {
+      payload.id = selectedEvent.id;
+      google.script.run.withSuccessHandler(() => {
+        setStatus('Updated.');
+        calendar.refetchEvents();
+      }).updateEvent(payload);
+    } else {
+      google.script.run.withSuccessHandler(() => {
+        setStatus('Added.');
+        calendar.refetchEvents();
+      }).addEvent(payload);
+    }
+  }
+
+  function onDelete() {
+    if (!selectedEvent || !selectedEvent.id) return;
+    if (!confirm('Delete this event?')) return;
+    google.script.run.withSuccessHandler(() => {
+      setStatus('Deleted.');
+      selectedEvent = null;
+      document.getElementById('deleteBtn').disabled = true;
+      calendar.refetchEvents();
+    }).deleteEvent(selectedEvent.id);
+  }
+
+  // tiny helpers
+  function val(id){ return document.getElementById(id).value; }
+  function setVal(id,v){ document.getElementById(id).value = v; }
+  function setStatus(msg){ document.getElementById('status').textContent = msg; }
+</script>
+
+</body>
+</html>
